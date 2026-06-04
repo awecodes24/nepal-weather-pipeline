@@ -4,8 +4,8 @@ from sqlalchemy import select, func, desc
 from datetime import datetime, timedelta
 from typing import Annotated
 from ..database import get_db
-from ..models import WeatherReading
-from ..schemas import WeatherReadingOut, CityStats
+from ..models import WeatherReading, ForecastReading
+from ..schemas import WeatherReadingOut, CityStats, ForecastOut
 from ..fetcher import scrape_all
 
 router = APIRouter(prefix="/weather", tags=["weather"])
@@ -35,7 +35,6 @@ async def get_latest(db: Annotated[AsyncSession, Depends(get_db)]):
     )
     return result.scalars().all()
 
-    
 @router.get("/history", response_model=list[WeatherReadingOut])
 async def get_history(
     city: str = Query(..., description="City name"),
@@ -101,3 +100,21 @@ async def trigger_scrape():
     """
     result = await scrape_all()
     return result
+
+@router.get("/forecast", response_model=list[ForecastOut])
+async def get_forecast(
+    city: str = Query(..., description="City name"),
+    db: Annotated[AsyncSession, Depends(get_db)] = None,
+):
+    """Get forecast readings for a specific city (case-insensitive)."""
+    result = await db.execute(
+        select(ForecastReading)
+        .where(ForecastReading.city.ilike(city))
+        .order_by(ForecastReading.forecast_for)
+    )
+    forecasts = result.scalars().all()
+    if not forecasts:
+        raise HTTPException(
+            404, f"No forecast found for {city}. Use /weather/cities to see available cities."
+        )
+    return forecasts

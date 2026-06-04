@@ -3,7 +3,7 @@ from sqlalchemy import (
     UniqueConstraint, Index
 )
 from sqlalchemy.orm import Mapped, mapped_column
-from datetime import datetime
+from datetime import datetime, timezone
 from .database import Base
 
 class WeatherReading(Base):
@@ -40,7 +40,7 @@ class ForecastReading(Base):
     id : Mapped[int] = mapped_column(Integer, primary_key=True)
     city : Mapped[str] = mapped_column(String(100), nullable=False)
     forecast_for : Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    fetched_at : Mapped[datetime] = mapped_column(DateTime, default=datetime.now(datetime.timezone.utc))
+    fetched_at : Mapped[datetime] = mapped_column(DateTime, default=datetime.now(timezone.utc))
     temp_c : Mapped[float] = mapped_column(Float)
     temp_min : Mapped[float] = mapped_column(Float)
     temp_max : Mapped[float] = mapped_column(Float)
