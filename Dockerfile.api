@@ -1,0 +1,25 @@
+FROM python:3.11-slim
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+
+# Copy dependency files first (layer caching — only reinstall
+# when pyproject.toml changes, not on every code change)
+COPY pyproject.toml .
+RUN uv sync --no-dev --frozen
+
+# Copy source code
+COPY api/ ./api/
+COPY processing/ ./processing/
+COPY charts/ ./charts/
+
+# Don't run as root in production
+RUN adduser --disabled-password --gecos "" appuser
+USER appuser
+
+EXPOSE 8000
+
+CMD ["uv", "run", "uvicorn", "api.main:app",
+     "--host", "0.0.0.0", "--port", "8000"]
