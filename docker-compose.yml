@@ -1,0 +1,54 @@
+services:
+
+  # PostgreSQL database
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB:       weather_db
+      POSTGRES_USER:     weatheruser
+      POSTGRES_PASSWORD: weatherdbpass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U weatheruser -d weather_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI backend
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://weatheruser:weatherdbpass@postgres:5432/weather_db
+      OWM_API_KEY:  ${OWM_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./api:/app/api         # hot reload in development
+    command: >
+      uv run uvicorn api.main:app
+      --host 0.0.0.0 --port 8000 --reload
+
+  # Streamlit dashboard
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      API_BASE: http://api:8000
+    depends_on:
+      - api
+    volumes:
+      - ./dashboard:/app/dashboard
+
+volumes:
+  postgres_data:

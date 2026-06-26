@@ -1,18 +1,25 @@
-FROM python:3.11-slim
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+FROM python:3.11-slim AS base
 
 WORKDIR /app
-COPY pyproject.toml .
-RUN uv sync --no-dev --frozen
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+     build-essential curl ca-certificates && rm -rf /var/lib/apt/lists/*
+
+FROM base AS uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+FROM base
+COPY pyproject.toml poetry.lock* ./
+COPY --from=uv /usr/local/bin/uv /usr/local/bin/uv
+RUN if [ -x /usr/local/bin/uv ]; then /usr/local/bin/uv sync --no-dev --frozen; else pip install --no-cache-dir poetry && poetry export -f requirements.txt --output requirements.txt --without-hashes && pip install --no-cache-dir -r requirements.txt; fi
 
 COPY dashboard/ ./dashboard/
 COPY charts/ ./charts/
 COPY processing/ ./processing/
 
+RUN adduser --disabled-password --gecos "" appuser && chown -R appuser:appuser /app
+USER appuser
+
 EXPOSE 8501
 
-CMD ["uv", "run", "streamlit", "run",
-     "dashboard/app.py",
-     "--server.port=8501",
-     "--server.address=0.0.0.0",
-     "--server.headless=true"]
+CMD ["uv", "run", "streamlit", "run", "dashboard/app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]

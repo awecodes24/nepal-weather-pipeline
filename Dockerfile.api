@@ -1,14 +1,24 @@
-FROM python:3.11-slim
-
-# Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+FROM python:3.11-slim AS base
 
 WORKDIR /app
 
-# Copy dependency files first (layer caching — only reinstall
-# when pyproject.toml changes, not on every code change)
-COPY pyproject.toml .
-RUN uv sync --no-dev --frozen
+# Install build deps and curl for fetching uv if needed
+RUN apt-get update && apt-get install -y --no-install-recommends \
+     build-essential curl ca-certificates && \
+     rm -rf /var/lib/apt/lists/*
+
+# Install uv from upstream image (if available) or fallback to pip
+FROM base AS uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+FROM base
+
+# Copy dependency files first (layer caching)
+COPY pyproject.toml poetry.lock* ./
+
+# If uv binary was copied, use it; else install via pip
+COPY --from=uv /usr/local/bin/uv /usr/local/bin/uv
+RUN if [ -x /usr/local/bin/uv ]; then /usr/local/bin/uv sync --no-dev --frozen; else pip install --no-cache-dir poetry && poetry export -f requirements.txt --output requirements.txt --without-hashes && pip install --no-cache-dir -r requirements.txt; fi
 
 # Copy source code
 COPY api/ ./api/
@@ -16,10 +26,9 @@ COPY processing/ ./processing/
 COPY charts/ ./charts/
 
 # Don't run as root in production
-RUN adduser --disabled-password --gecos "" appuser
+RUN adduser --disabled-password --gecos "" appuser && chown -R appuser:appuser /app
 USER appuser
 
 EXPOSE 8000
 
-CMD ["uv", "run", "uvicorn", "api.main:app",
-     "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
