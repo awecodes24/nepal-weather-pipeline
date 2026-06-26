@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      # Spin up a real PostgreSQL for integration tests
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB:       test_db
+          POSTGRES_USER:     postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Lint with ruff
+        run: uv run ruff check api/ processing/ charts/ tests/
+
+      - name: Run tests with coverage
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/test_db
+          OWM_API_KEY:  ${{ secrets.OWM_API_KEY }}
+        run: |
+          uv run pytest tests/ -v \
+            --cov=api --cov=processing \
+            --cov-report=xml \
+            --tb=short
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: test   # only build if tests pass
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build API image
+        run: docker build -f Dockerfile.api -t weather-api .
+
+      - name: Build Dashboard image
+        run: docker build -f Dockerfile.dashboard \
+                          -t weather-dashboard .
+
+      - name: Test API container starts
+        run: |
+          docker run -d --name api-test \
+            -e DATABASE_URL="sqlite+aiosqlite:///:memory:" \
+            -e OWM_API_KEY="test" \
+            -p 8000:8000 weather-api
+          sleep 5
+          curl -f http://localhost:8000/health || exit 1
+          docker stop api-test
